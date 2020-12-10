@@ -1,0 +1,55 @@
+#!/bin/sh
+
+set -e
+
+if [ "$#" -gt 0 ] && [ "$1" = '--debug' ]; then
+    VERBOSE=YES
+fi
+
+# Detect if --git-dir= and/or --work-tree= is used
+if [ -n "${GIT_DIR+x}" ]; then
+    echo 'Fallback to the original one because --git-dir is used' >&2
+    exec git submodule update --init --recursive "$@"
+fi
+if [ -n "${GIT_WORKTREE+x}" ]; then
+    echo 'Fallback to the original one because --work-tree is used' >&2
+    exec git submodule update --init --recursive "$@"
+fi
+
+[ -n "$VERBOSE" ] && echo 'Detecting top-level git repo...' >&2
+G="$(git rev-parse --git-dir)"
+G="$(realpath "$G")"
+while N="$(git -C "$G/.." rev-parse --git-dir 2>/dev/null)"; do
+    N="$(cd "$G/.." && realpath "$N")"
+    if [ "$N" = "$G" ]; then
+        break
+    fi
+    G="$N"
+    [ -n "$VERBOSE" ] && echo 'Found git repo at:' "$G" >&2
+done
+[ -n "$VERBOSE" ] && echo 'The top-level git repo is:' "$G" >&2
+
+[ -n "$VERBOSE" ] && echo 'Detecting top-level worktree...' >&2
+W="$(git rev-parse --show-toplevel)"
+W="$(realpath "$W")"
+while N="$(git -C "$W/.." rev-parse --show-toplevel 2>/dev/null)"; do
+    N="$(cd "$W/.." && realpath "$N")"
+    if [ "$N" = "$W" ]; then
+        break
+    fi
+    W="$N"
+    [ -n "$VERBOSE" ] && echo 'Found git worktree at:' "$W" >&2
+done
+[ -n "$VERBOSE" ] && echo 'The top-level git worktree is:' "$W" >&2
+
+GG="$(git -C "$W" rev-parse --git-dir)"
+GG="$(cd "$W" && realpath "$GG")"
+if [ ! "$GG" = "$G" ]; then
+    echo 'Fallback due to inconsistent layout:' >&2
+    echo "$G" >&2
+    echo "$GG" >&2
+    exec git submodule update --init --recursive "$@"
+fi
+
+echo 'Calling git-submodule from' "$W" >&2
+exec git -C "$W" submodule update --init --recursive "$@"
