@@ -1,3 +1,92 @@
-#!/bin/sh
+#!/bin/bash
 
+set -e
 
+echo 'Updating' "$PWD" >&2
+H="$(git describe --all --exact-match HEAD 2>/dev/null || git rev-parse --short HEAD)"
+D="$(git describe --all --exact-match "$1" 2>/dev/null || git rev-parse --short "$1")"
+
+echo 'Submodule HEAD:' "$H" ' Parent index:' "$D" >&2
+RM="$(git rev-list "$D".."$H" | wc -l)"
+if [ "$RM" -gt 5 ]; then
+    echo $'\e[35mOur changes:\e[0m' >&2
+    git rev-list "$D".."$H" -n 3 | sed 's/$/^!/' | xargs -n1 git -P lg
+    echo "... $RM commits in total ..."
+    git rev-list "$D".."$H" | sed "1,$((ADD-2))d;s/\$/^!/" | xargs -n1 git -P lg
+elif [ "$RM" -gt 0 ]; then
+    echo $'\e[35mOur changes:\e[0m' >&2
+    git -P lg "$D".."$H"
+else
+    echo $'\e[32mNo our changes!\e[0m' >&2
+fi
+ADD="$(git rev-list "$H".."$D" | wc -l)"
+if [ "$ADD" -gt 5 ]; then
+    echo $'\e[33mTheir changes:\e[0m' >&2
+    git rev-list "$H".."$D" -n 3 | sed 's/$/^!/' | xargs -n1 git -P lg
+    echo "... $ADD commits in total ..."
+    git rev-list "$H".."$D" | sed "1,$((ADD-2))d;s/\$/^!/" | xargs -n1 git -P lg
+elif [ "$ADD" -gt 0 ]; then
+    echo $'\e[33mTheir changes:\e[0m' >&2
+    git -P lg "$H".."$D"
+else
+    echo $'\e[34mNo their changes!\e[0m' >&2
+fi
+
+while true; do
+    PMT='Action? (s/S/[m]/M/r/q/b/l/?) '
+    read -p "$PMT" -n 1 -r <&2
+    case "$REPLY" in
+        s)
+            printf '\n' >&2
+            set -x
+            exec git switch -d "$1"
+            ;;
+        S)
+            printf '\n' >&2
+            set -x
+            exec git switch -d -f "$1"
+            ;;
+        ""|m)
+            printf '\n' >&2
+            set -x
+            exec git merge --ff-only "$1"
+            ;;
+        M)
+            printf '\n' >&2
+            set -x
+            exec git merge --no-ff "$1"
+            ;;
+        r)
+            printf '\n' >&2
+            set -x
+            exec git rebase -i "$1"
+            ;;
+        q)
+            printf '\n' >&2
+            exit 0
+            ;;
+        b)
+            printf '\n' >&2
+            git -p show-branch "$H" "$D"
+            ;;
+        l)
+            printf '\n' >&2
+            git merge-base --all "$H" "$D" | sed 's/$/^@/' | xargs \
+                git -p lg "$H" "$D" --not
+            ;;
+        ?)
+            printf '\n' >&2
+            cat - >&2 <<EOF
+s: git switch -d
+S: git switch -d -f
+m: git merge --ff-only
+M: git merge --no-ff
+r: git rebase -i
+q: (no action)
+b: git -p show-branch
+l: git -p lg
+?: show help
+EOF
+            ;;
+    esac
+done
